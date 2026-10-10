@@ -31,9 +31,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
 
-        // Menghubungkan pembaruan status dari NovanService ke UI Compose
-        NovanService.onStatusUpdate = { newStatus ->
-            updateStatusCallback?.invoke(newStatus)
+        NovanService.statusCallback = object : NovanService.StatusCallback {
+            override fun onUpdate(status: String) {
+                updateStatusCallback?.invoke(status)
+            }
         }
 
         setContent {
@@ -86,7 +87,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        NovanService.onStatusUpdate = null
+        NovanService.statusCallback = null
     }
 }
 
@@ -109,7 +110,6 @@ fun LayarUtama(
         
         Spacer(modifier = Modifier.height(36.dp))
 
-        // Tombol interaktif untuk menyalakan/mematikan layanan navigasi latar belakang
         Button(
             onClick = { onToggleClick(!isRunning) },
             colors = ButtonDefaults.buttonColors(
