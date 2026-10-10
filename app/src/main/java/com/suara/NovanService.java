@@ -1,225 +1,264 @@
-package com.suara
+package com.suara;
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.Service
-import android.content.Context
-import android.content.Intent
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
-import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
-import android.os.Build
-import android.os.IBinder
-import android.speech.tts.TextToSpeech
-import androidx.core.app.NotificationCompat
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import java.util.Locale
-import kotlin.concurrent.thread
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.Service;
+import android.content.Context;
+import android.content.Intent;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.os.Build;
+import android.os.IBinder;
+import android.speech.tts.TextToSpeech;
+import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
+import org.json.JSONObject;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.Locale;
 
-object CompassUtilKotlin {
-    fun getCardinalDirection(bearing: Float): String {
-        val normalizedBearing = (bearing % 360 + 360) % 360
-        return when {
-            normalizedBearing >= 337.5 || normalizedBearing < 22.5 -> "Utara"
-            normalizedBearing >= 22.5 && normalizedBearing < 67.5 -> "Timur Laut"
-            normalizedBearing >= 67.5 && normalizedBearing < 112.5 -> "Timur"
-            normalizedBearing >= 112.5 && normalizedBearing < 157.5 -> "Tenggara"
-            normalizedBearing >= 157.5 && normalizedBearing < 202.5 -> "Selatan"
-            normalizedBearing >= 202.5 && normalizedBearing < 247.5 -> "Barat Daya"
-            normalizedBearing >= 247.5 && normalizedBearing < 292.5 -> "Barat"
-            normalizedBearing >= 292.5 && normalizedBearing < 337.5 -> "Barat Laut"
-            else -> "Utara"
-        }
+class CompassUtilJava {
+    public static String getCardinalDirection(float bearing) {
+        float normalized = (bearing % 360 + 360) % 360;
+        if (normalized >= 337.5 || normalized < 22.5) return "Utara";
+        if (normalized >= 22.5 && normalized < 67.5) return "Timur Laut";
+        if (normalized >= 67.5 && normalized < 112.5) return "Timur";
+        if (normalized >= 112.5 && normalized < 157.5) return "Tenggara";
+        if (normalized >= 157.5 && normalized < 202.5) return "Selatan";
+        if (normalized >= 202.5 && normalized < 247.5) return "Barat Daya";
+        if (normalized >= 247.5 && normalized < 292.5) return "Barat";
+        if (normalized >= 292.5 && normalized < 337.5) return "Barat Laut";
+        return "Utara";
     }
 }
 
-class NovanService : Service(), TextToSpeech.OnInitListener, SensorEventListener {
+public class NovanService extends Service implements TextToSpeech.OnInitListener, SensorEventListener {
 
-    private var tts: TextToSpeech? = null
-    private var isTtsReady = false
+    private TextToSpeech tts;
+    private boolean isTtsReady = false;
 
-    private lateinit var locationManager: LocationManager
-    private var locationListener: LocationListener? = null
-    private var lastLocation: Location? = null
+    private LocationManager locationManager;
+    private LocationListener locationListener;
+    private Location lastLocation;
 
-    private lateinit var sensorManager: SensorManager
-    private val gravityValues = FloatArray(3)
-    private val geomagneticValues = FloatArray(3)
-    private var hasGravity = false
-    private var hasGeomagnetic = false
+    private SensorManager sensorManager;
+    private final float[] gravityValues = new float[3];
+    private final float[] geomagneticValues = new float[3];
+    private boolean hasGravity = false;
+    private boolean hasGeomagnetic = false;
 
-    private var lastAnnouncedDirection = ""
-    private var lastRoadName = "Mencari nama jalan..."
-    private var lastApiCallTime = 0L
+    private String lastAnnouncedDirection = "";
+    private String lastRoadName = "Mencari nama jalan...";
+    private long lastApiCallTime = 0L;
 
-    companion object {
-        const val CHANNEL_ID = "NovanNavServiceChannel"
-        const val NOTIFICATION_ID = 123
-        var onStatusUpdate: ((String) -> Unit)? = null
+    public static final String CHANNEL_ID = "NovanNavServiceChannel";
+    public static final int NOTIFICATION_ID = 123;
+    
+    // Interface sederhana pengganti lambda Kotlin agar aman di Java
+    public interface StatusCallback {
+        void onUpdate(String status);
+    }
+    public static StatusCallback statusCallback = null;
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        tts = new TextToSpeech(this, this);
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
     }
 
-    override fun onCreate() {
-        super.onCreate()
-        tts = TextToSpeech(this, this)
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
-    }
-
-    override fun onInit(status: Int) {
+    @Override
+    public void onInit(int status) {
         if (status == TextToSpeech.SUCCESS) {
-            val result = tts?.setLanguage(Locale("id", "ID"))
+            int result = tts.setLanguage(new Locale("id", "ID"));
             if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
-                isTtsReady = true
-                speak("Navigasi latar belakang diaktifkan.")
+                isTtsReady = true;
+                speak("Navigasi latar belakang diaktifkan.");
             }
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        createNotificationChannel()
-        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Navigasi Suara Aktif")
-            .setContentText("Melacak lokasi dan kompas...")
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .build()
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        createNotificationChannel();
+        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Navigasi Suara Aktif")
+                .setContentText("Melacak lokasi, kompas, dan nama jalan...")
+                .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+                .build();
 
-        startForeground(NOTIFICATION_ID, notification)
-        startTracking()
+        startForeground(NOTIFICATION_ID, notification);
+        startTracking();
 
-        return START_STICKY
+        return START_STICKY;
     }
 
-    private fun startTracking() {
-        val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        val magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+    private void startTracking() {
+        Sensor accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        Sensor magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
 
-        accelerometer?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
-        magnetometer?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
-
-        locationListener = LocationListener { location ->
-            lastLocation = location
-            processLocation(location)
+        if (accelerometer != null) {
+            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
         }
+        if (magnetometer != null) {
+            sensorManager.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_UI);
+        }
+
+        locationListener = new LocationListener() {
+            @Override
+            public void onLocationChanged(Location location) {
+                lastLocation = location;
+                processLocation(location);
+            }
+        };
 
         try {
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                1000L,
-                1.0f,
-                locationListener!!
-            )
-        } catch (e: SecurityException) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun processLocation(location: Location) {
-        val bearing = location.bearing
-        val direction = CompassUtilKotlin.getCardinalDirection(bearing)
-        val speedKmh = if (location.hasSpeed()) (location.speed * 3.6).toInt() else 0
-
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastApiCallTime > 15000) {
-            lastApiCallTime = currentTime
-            fetchStreetName(location.latitude, location.longitude)
-        }
-
-        val statusMsg = "Jalan: $lastRoadName\nMenghadap: $direction | Kecepatan: $speedKmh km/jam"
-        onStatusUpdate?.invoke(statusMsg)
-
-        if (direction != lastAnnouncedDirection) {
-            lastAnnouncedDirection = direction
-            speak("Menghadap ke $direction. $lastRoadName")
-        }
-    }
-
-    override fun onSensorChanged(event: SensorEvent?) {
-        event?.let {
-            if (it.sensor.type == Sensor.TYPE_ACCELEROMETER) {
-                System.arraycopy(it.values, 0, gravityValues, 0, it.values.size)
-                hasGravity = true
-            } else if (it.sensor.type == Sensor.TYPE_MAGNETIC_FIELD) {
-                System.arraycopy(it.values, 0, geomagneticValues, 0, it.values.size)
-                hasGeomagnetic = true
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1.0f, locationListener);
             }
+        } catch (SecurityException e) {
+            e.printStackTrace();
+        }
+    }
 
-            if (hasGravity && hasGeomagnetic) {
-                val r = FloatArray(9)
-                val i = FloatArray(9)
-                if (SensorManager.getRotationMatrix(r, i, gravityValues, geomagneticValues)) {
-                    val orientation = FloatArray(3)
-                    SensorManager.getOrientation(r, orientation)
-                    val azimuth = Math.toDegrees(orientation[0].toDouble()).toFloat()
-                    val normalizedBearing = (azimuth + 360) % 360
+    private void processLocation(Location location) {
+        float bearing = location.getBearing();
+        String direction = CompassUtilJava.getCardinalDirection(bearing);
+        int speedKmh = location.hasSpeed() ? (int) (location.getSpeed() * 3.6) : 0;
 
-                    val isMoving = lastLocation?.hasSpeed() == true && (lastLocation?.speed ?: 0f) > 0.8f
-                    if (!isMoving) {
-                        val direction = CompassUtilKotlin.getCardinalDirection(normalizedBearing)
-                        val statusMsg = "Jalan: $lastRoadName\nMenghadap: $direction (Kompas)"
-                        onStatusUpdate?.invoke(statusMsg)
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastApiCallTime > 15000) {
+            lastApiCallTime = currentTime;
+            fetchStreetName(location.getLatitude(), location.getLongitude());
+        }
+
+        String statusMsg = "Jalan: " + lastRoadName + "\nMenghadap: " + direction + " | Kecepatan: " + speedKmh + " km/jam";
+        if (statusCallback != null) {
+            statusCallback.onUpdate(statusMsg);
+        }
+
+        if (!direction.equals(lastAnnouncedDirection)) {
+            lastAnnouncedDirection = direction;
+            speak("Menghadap ke " + direction + ". " + lastRoadName);
+        }
+    }
+
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
+            System.arraycopy(event.values, 0, gravityValues, 0, event.values.length);
+            hasGravity = true;
+        } else if (event.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD) {
+            System.arraycopy(event.values, 0, geomagneticValues, 0, event.values.length);
+            hasGeomagnetic = true;
+        }
+
+        if (hasGravity && hasGeomagnetic) {
+            float[] r = new float[9];
+            float[] i = new float[9];
+            if (SensorManager.getRotationMatrix(r, i, gravityValues, geomagneticValues)) {
+                float[] orientation = new float[3];
+                SensorManager.getOrientation(r, orientation);
+                float azimuth = (float) Math.toDegrees(orientation[0]);
+                float normalized = (azimuth + 360) % 360;
+
+                boolean isMoving = lastLocation != null && lastLocation.hasSpeed() && lastLocation.getSpeed() > 0.8f;
+                if (!isMoving) {
+                    String direction = CompassUtilJava.getCardinalDirection(normalized);
+                    String statusMsg = "Jalan: " + lastRoadName + "\nMenghadap: " + direction + " (Kompas)";
+                    if (statusCallback != null) {
+                        statusCallback.onUpdate(statusMsg);
                     }
                 }
             }
         }
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {}
 
-    private fun fetchStreetName(lat: Double, lon: Double) {
-        thread {
+    private void fetchStreetName(double lat, double lon) {
+        new Thread(() -> {
             try {
-                val urlStr = "https://nominatim.openstreetmap.org/reverse?format=json&lat=$lat&lon=$lon"
-                val url = URL(urlStr)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.setRequestProperty("User-Agent", "NavigasiTunanetraApp/1.0")
-                connection.connectTimeout = 5000
-                connection.readTimeout = 5000
+                String urlStr = "https://nominatim.openstreetmap.org/reverse?format=json&lat=" + lat + "&lon=" + lon;
+                URL url = new URL(urlStr);
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestProperty("User-Agent", "NavigasiTunanetraApp/1.0");
+                connection.setConnectTimeout(5000);
+                connection.setReadTimeout(5000);
 
-                if (connection.responseCode == 200) {
-                    val response = connection.inputStream.bufferedReader().use { it.readText() }
-                    val json = JSONObject(response)
-                    val displayName = json.optString("display_name", "Lokasi tidak dikenal")
-                    val shortName = displayName.split(",").take(2).joinToString(",")
-                    lastRoadName = shortName
+                if (connection.getResponseCode() == 200) {
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        response.append(line);
+                    }
+                    reader.close();
+
+                    JSONObject json = new JSONObject(response.toString());
+                    String displayName = json.optString("display_name", "Lokasi tidak dikenal");
+                    String[] parts = displayName.split(",");
+                    if (parts.length >= 2) {
+                        lastRoadName = parts[0].trim() + ", " + parts[1].trim();
+                    } else {
+                        lastRoadName = displayName;
+                    }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    public void speak(String text) {
+        if (isTtsReady && tts != null) {
+            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, String.valueOf(System.currentTimeMillis()));
+        }
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "Layanan Navigasi Suara",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
             }
         }
     }
 
-    fun speak(text: String) {
-        if (isTtsReady) {
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, System.currentTimeMillis().toString())
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        sensorManager.unregisterListener(this);
+        if (locationListener != null && locationManager != null) {
+            try {
+                locationManager.removeUpdates(locationListener);
+            } catch (SecurityException e) {
+                e.printStackTrace();
+            }
+        }
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
         }
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Layanan Navigasi Suara",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(channel)
-        }
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
     }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        sensorManager.unregisterListener(this)
-        locationListener?.let { locationManager.removeUpdates(it) }
-        tts?.stop()
-        tts?.shutdown()
-    }
-
-    override fun onBind(intent: Intent?): IBinder? = null
 }
