@@ -15,15 +15,8 @@ import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,18 +62,22 @@ class NavigationVoiceManager(
     private var hasGeomagnetic = false
 
     private var lastAnnouncedDirection: String = ""
+    private var isTrackingActive = false
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             val result = tts?.setLanguage(Locale("id", "ID"))
             if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
                 isTtsReady = true
-                speak("Navigasi suara siap dimulai.")
+                speak("Aplikasi navigasi siap.")
             }
         }
     }
 
     fun startTracking() {
+        if (isTrackingActive) return
+        isTrackingActive = true
+
         val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         val magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
@@ -108,9 +105,26 @@ class NavigationVoiceManager(
         } catch (e: SecurityException) {
             e.printStackTrace()
         }
+        onStatusUpdate("Navigasi aktif. Mencari sinyal GPS...")
+        speak("Navigasi diaktifkan.")
+    }
+
+    fun stopTracking() {
+        if (!isTrackingActive) return
+        isTrackingActive = false
+
+        sensorManager.unregisterListener(this)
+        locationListener?.let { locationManager.removeUpdates(it) }
+        
+        // Hentikan suara yang sedang berjalan dan bersihkan antrean
+        tts?.stop()
+        
+        onStatusUpdate("Navigasi dihentikan.")
+        speak("Navigasi dihentikan.")
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
+        if (!isTrackingActive) return
         event?.let {
             if (it.sensor.type == Sensor.TYPE_ACCELEROMETER) {
                 System.arraycopy(it.values, 0, gravityValues, 0, it.values.size)
@@ -141,7 +155,7 @@ class NavigationVoiceManager(
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     private fun processLocationAndCompass(bearing: Float, hasBearing: Boolean, speed: Float) {
-        if (!hasBearing) return
+        if (!isTrackingActive || !hasBearing) return
 
         val direction = CompassUtil.getCardinalDirection(bearing)
         val speedKmh = if (speed > 0) (speed * 3.6).toInt() else 0
@@ -157,14 +171,12 @@ class NavigationVoiceManager(
 
     fun speak(text: String) {
         if (isTtsReady) {
-            tts?.speak(text, TextToSpeech.QUEUE_ADD, null, System.currentTimeMillis().toString())
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, System.currentTimeMillis().toString())
         }
     }
 
-    fun stop() {
-        sensorManager.unregisterListener(this)
-        locationListener?.let { locationManager.removeUpdates(it) }
-        tts?.stop()
+    fun release() {
+        stopTracking()
         tts?.shutdown()
     }
 }
@@ -178,7 +190,6 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
-            updateStatusCallback?.invoke("Mencari sinyal GPS...")
             navManager.startTracking()
         } else {
             updateStatusCallback?.invoke("Izin lokasi ditolak.")
@@ -194,7 +205,8 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            var statusText by remember { mutableStateOf("Meminta izin lokasi...") }
+            var statusText by remember { mutableStateOf("Tekan tombol untuk mulai navigasi") }
+            var isRunning by remember { mutableStateOf(false) }
 
             updateStatusCallback = { newStatus ->
                 statusText = newStatus
@@ -202,27 +214,40 @@ class MainActivity : ComponentActivity() {
 
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    LayarUtama(statusText = statusText)
+                    LayarUtama(
+                        statusText = statusText,
+                        isRunning = isRunning,
+                        onToggleClick = { active ->
+                            isRunning = active
+                            if (active) {
+                                requestPermissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                    )
+                                )
+                            } else {
+                                navManager.stopTracking()
+                            }
+                        }
+                    )
                 }
             }
         }
-
-        requestPermissionLauncher.launch(
-            arrayOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            )
-        )
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        navManager.stop()
+        navManager.release()
     }
 }
 
 @Composable
-fun LayarUtama(statusText: String) {
+fun LayarUtama(
+    statusText: String,
+    isRunning: Boolean,
+    onToggleClick: (Boolean) -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -231,7 +256,23 @@ fun LayarUtama(statusText: String) {
         verticalArrangement = Arrangement.Center
     ) {
         Text("navigasi suara gps", style = MaterialTheme.typography.headlineMedium)
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(24.dp))
         Text(statusText, style = MaterialTheme.typography.bodyLarge)
+        
+        Spacer(modifier = Modifier.height(36.dp))
+
+        // Tombol Kontrol Mulai / Berhenti
+        Button(
+            onClick = { onToggleClick(!isRunning) },
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+            ),
+            modifier = Modifier.fillMaxWidth(0.7f).height(50.dp)
+        ) {
+            Text(
+                text = if (isRunning) "Berhenti Bersuara" else "Mulai Navigasi",
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
     }
 }
