@@ -35,7 +35,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import java.util.Locale
 
-// Utility untuk mengonversi derajat arah (bearing) ke 8 Penjuru Mata Angin
+// Utility 8 Penjuru Mata Angin
 object CompassUtil {
     fun getCardinalDirection(bearing: Float): String {
         val normalizedBearing = (bearing % 360 + 360) % 360
@@ -53,7 +53,6 @@ object CompassUtil {
     }
 }
 
-// Manager untuk Text-to-Speech dan Fused Location
 class NavigationVoiceManager(private val context: Context, private val onStatusUpdate: (String) -> Unit) : TextToSpeech.OnInitListener {
     private val fusedLocationClient: FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(context)
     private var tts: TextToSpeech? = TextToSpeech(context, this)
@@ -74,7 +73,7 @@ class NavigationVoiceManager(private val context: Context, private val onStatusU
     fun startTracking() {
         val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L).apply {
             setMinUpdateIntervalMillis(500L)
-            setMinUpdateDistanceMeters(1.0f) // Update setiap pergerakan minimal 1 meter
+            setMinUpdateDistanceMeters(1.0f)
         }.build()
 
         locationCallback = object : LocationCallback() {
@@ -101,7 +100,6 @@ class NavigationVoiceManager(private val context: Context, private val onStatusU
         val statusMessage = "Menghadap: $direction\nKecepatan: $speedKmh km/jam"
         onStatusUpdate(statusMessage)
 
-        // Berikan pengumuman suara real-time jika arah mata angin berubah
         if (direction != lastAnnouncedDirection) {
             lastAnnouncedDirection = direction
             speak("Menghadap ke $direction")
@@ -123,17 +121,20 @@ class NavigationVoiceManager(private val context: Context, private val onStatusU
 
 class MainActivity : ComponentActivity() {
     private lateinit var navManager: NavigationVoiceManager
-    var statusText by mutableStateOf("Meminta izin lokasi...")
+    
+    // Menggunakan backing property untuk state teks agar aman dari error kompilasi Activity
+    private var _statusText by mutableStateOf("Meminta izin lokasi...")
+    val statusText: String get() = _statusText
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
-            statusText = "Mencari sinyal GPS..."
+            _statusText = "Mencari sinyal GPS..."
             navManager.startTracking()
         } else {
-            statusText = "Izin lokasi ditolak. Navigasi tidak dapat berjalan."
+            _statusText = "Izin lokasi ditolak."
             navManager.speak("Izin lokasi ditolak.")
         }
     }
@@ -142,7 +143,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(state)
         
         navManager = NavigationVoiceManager(this) { newStatus ->
-            statusText = newStatus
+            _statusText = newStatus
         }
 
         setContent {
@@ -153,7 +154,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Meminta izin lokasi saat aplikasi dibuka
         requestPermissionLauncher.launch(
             arrayOf(
                 Manifest.permission.ACCESS_FINE_LOCATION,
