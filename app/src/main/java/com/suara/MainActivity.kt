@@ -1,17 +1,9 @@
 package com.suara
 
 import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
-import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
-import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,168 +13,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import java.util.Locale
-
-// Utility untuk 8 Penjuru Mata Angin Bahasa Indonesia
-object CompassUtil {
-    fun getCardinalDirection(bearing: Float): String {
-        val normalizedBearing = (bearing % 360 + 360) % 360
-        return when {
-            normalizedBearing >= 337.5 || normalizedBearing < 22.5 -> "Utara"
-            normalizedBearing >= 22.5 && normalizedBearing < 67.5 -> "Timur Laut"
-            normalizedBearing >= 67.5 && normalizedBearing < 112.5 -> "Timur"
-            normalizedBearing >= 112.5 && normalizedBearing < 157.5 -> "Tenggara"
-            normalizedBearing >= 157.5 && normalizedBearing < 202.5 -> "Selatan"
-            normalizedBearing >= 202.5 && normalizedBearing < 247.5 -> "Barat Daya"
-            normalizedBearing >= 247.5 && normalizedBearing < 292.5 -> "Barat"
-            normalizedBearing >= 292.5 && normalizedBearing < 337.5 -> "Barat Laut"
-            else -> "Utara"
-        }
-    }
-}
-
-// Manager untuk Text-to-Speech, GPS, dan Sensor Kompas Hardware
-class NavigationVoiceManager(
-    private val context: Context,
-    private val onStatusUpdate: (String) -> Unit
-) : TextToSpeech.OnInitListener, SensorEventListener {
-
-    private var tts: TextToSpeech? = TextToSpeech(context, this)
-    private var isTtsReady = false
-
-    private val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    private var locationListener: LocationListener? = null
-    private var lastLocation: Location? = null
-
-    private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-    private val gravityValues = FloatArray(3)
-    private val geomagneticValues = FloatArray(3)
-    private var hasGravity = false
-    private var hasGeomagnetic = false
-
-    private var lastAnnouncedDirection: String = ""
-    private var isTrackingActive = false
-
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            val result = tts?.setLanguage(Locale("id", "ID"))
-            if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
-                isTtsReady = true
-                speak("Aplikasi navigasi siap.")
-            }
-        }
-    }
-
-    fun startTracking() {
-        if (isTrackingActive) return
-        isTrackingActive = true
-
-        val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        val magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
-
-        accelerometer?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
-        }
-        magnetometer?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
-        }
-
-        locationListener = LocationListener { location ->
-            lastLocation = location
-            processLocationAndCompass(location.bearing, location.hasBearing(), location.speed)
-        }
-
-        try {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                locationManager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER,
-                    1000L,
-                    1.0f,
-                    locationListener!!
-                )
-            }
-        } catch (e: SecurityException) {
-            e.printStackTrace()
-        }
-        onStatusUpdate("Navigasi aktif. Mencari sinyal GPS...")
-        speak("Navigasi diaktifkan.")
-    }
-
-    fun stopTracking() {
-        if (!isTrackingActive) return
-        isTrackingActive = false
-
-        sensorManager.unregisterListener(this)
-        locationListener?.let { locationManager.removeUpdates(it) }
-        
-        // Hentikan suara yang sedang berjalan dan bersihkan antrean
-        tts?.stop()
-        
-        onStatusUpdate("Navigasi dihentikan.")
-        speak("Navigasi dihentikan.")
-    }
-
-    override fun onSensorChanged(event: SensorEvent?) {
-        if (!isTrackingActive) return
-        event?.let {
-            if (it.sensor.type == Sensor.TYPE_ACCELEROMETER) {
-                System.arraycopy(it.values, 0, gravityValues, 0, it.values.size)
-                hasGravity = true
-            } else if (it.sensor.type == Sensor.TYPE_MAGNETIC_FIELD) {
-                System.arraycopy(it.values, 0, geomagneticValues, 0, it.values.size)
-                hasGeomagnetic = true
-            }
-
-            if (hasGravity && hasGeomagnetic) {
-                val r = FloatArray(9)
-                val i = FloatArray(9)
-                if (SensorManager.getRotationMatrix(r, i, gravityValues, geomagneticValues)) {
-                    val orientation = FloatArray(3)
-                    SensorManager.getOrientation(r, orientation)
-                    val azimuthInDegrees = Math.toDegrees(orientation[0].toDouble()).toFloat()
-                    val normalizedBearing = (azimuthInDegrees + 360) % 360
-
-                    val isMoving = lastLocation?.hasSpeed() == true && (lastLocation?.speed ?: 0f) > 0.8f
-                    if (!isMoving) {
-                        processLocationAndCompass(normalizedBearing, true, lastLocation?.speed ?: 0f)
-                    }
-                }
-            }
-        }
-    }
-
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-
-    private fun processLocationAndCompass(bearing: Float, hasBearing: Boolean, speed: Float) {
-        if (!isTrackingActive || !hasBearing) return
-
-        val direction = CompassUtil.getCardinalDirection(bearing)
-        val speedKmh = if (speed > 0) (speed * 3.6).toInt() else 0
-
-        val statusMessage = "Menghadap: $direction\nKecepatan: $speedKmh km/jam"
-        onStatusUpdate(statusMessage)
-
-        if (direction != lastAnnouncedDirection) {
-            lastAnnouncedDirection = direction
-            speak("Menghadap ke $direction")
-        }
-    }
-
-    fun speak(text: String) {
-        if (isTtsReady) {
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, System.currentTimeMillis().toString())
-        }
-    }
-
-    fun release() {
-        stopTracking()
-        tts?.shutdown()
-    }
-}
 
 class MainActivity : ComponentActivity() {
-    private lateinit var navManager: NavigationVoiceManager
     private var updateStatusCallback: ((String) -> Unit)? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -190,17 +22,17 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
-            navManager.startTracking()
+            startNavService()
         } else {
             updateStatusCallback?.invoke("Izin lokasi ditolak.")
-            navManager.speak("Izin lokasi ditolak.")
         }
     }
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
 
-        navManager = NavigationVoiceManager(this) { newStatus ->
+        // Menghubungkan pembaruan status dari NovanService ke UI Compose
+        NovanService.onStatusUpdate = { newStatus ->
             updateStatusCallback?.invoke(newStatus)
         }
 
@@ -223,11 +55,12 @@ class MainActivity : ComponentActivity() {
                                 requestPermissionLauncher.launch(
                                     arrayOf(
                                         Manifest.permission.ACCESS_FINE_LOCATION,
-                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                                        Manifest.permission.ACCESS_BACKGROUND_LOCATION
                                     )
                                 )
                             } else {
-                                navManager.stopTracking()
+                                stopNavService()
                             }
                         }
                     )
@@ -236,9 +69,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun startNavService() {
+        val intent = Intent(this, NovanService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+
+    private fun stopNavService() {
+        val intent = Intent(this, NovanService::class.java)
+        stopService(intent)
+        updateStatusCallback?.invoke("Navigasi dihentikan.")
+    }
+
     override fun onDestroy() {
         super.onDestroy()
-        navManager.release()
+        NovanService.onStatusUpdate = null
     }
 }
 
@@ -261,7 +109,7 @@ fun LayarUtama(
         
         Spacer(modifier = Modifier.height(36.dp))
 
-        // Tombol Kontrol Mulai / Berhenti
+        // Tombol interaktif untuk menyalakan/mematikan layanan navigasi latar belakang
         Button(
             onClick = { onToggleClick(!isRunning) },
             colors = ButtonDefaults.buttonColors(
