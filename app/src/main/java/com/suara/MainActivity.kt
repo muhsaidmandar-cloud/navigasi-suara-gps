@@ -19,23 +19,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
+import com.google.android.gms.location.*
 import java.util.Locale
 
-// Utility 8 Penjuru Mata Angin
+// Utility untuk 8 Penjuru Mata Angin
 object CompassUtil {
     fun getCardinalDirection(bearing: Float): String {
         val normalizedBearing = (bearing % 360 + 360) % 360
@@ -53,6 +45,7 @@ object CompassUtil {
     }
 }
 
+// Manager untuk Text-to-Speech dan GPS Fused Location
 class NavigationVoiceManager(private val context: Context, private val onStatusUpdate: (String) -> Unit) : TextToSpeech.OnInitListener {
     private val fusedLocationClient: FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(context)
     private var tts: TextToSpeech? = TextToSpeech(context, this)
@@ -121,32 +114,36 @@ class NavigationVoiceManager(private val context: Context, private val onStatusU
 
 class MainActivity : ComponentActivity() {
     private lateinit var navManager: NavigationVoiceManager
-    
-    // Menggunakan backing property untuk state teks agar aman dari error kompilasi Activity
-    private var _statusText by mutableStateOf("Meminta izin lokasi...")
-    val statusText: String get() = _statusText
+    private var updateStatusCallback: ((String) -> Unit)? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
-            _statusText = "Mencari sinyal GPS..."
+            updateStatusCallback?.invoke("Mencari sinyal GPS...")
             navManager.startTracking()
         } else {
-            _statusText = "Izin lokasi ditolak."
+            updateStatusCallback?.invoke("Izin lokasi ditolak.")
             navManager.speak("Izin lokasi ditolak.")
         }
     }
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
-        
+
         navManager = NavigationVoiceManager(this) { newStatus ->
-            _statusText = newStatus
+            updateStatusCallback?.invoke(newStatus)
         }
 
         setContent {
+            // State diletakkan di dalam fungsi Composable dengan aman
+            var statusText by remember { mutableStateOf("Meminta izin lokasi...") }
+            
+            updateStatusCallback = { newStatus ->
+                statusText = newStatus
+            }
+
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     LayarUtama(statusText = statusText)
