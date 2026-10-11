@@ -51,8 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 class MainActivity : ComponentActivity() {
-    // Variabel callback yang dibutuhkan oleh build variant pro/gratis & NovanService
-    private var updateStatusCallback: ((String) -> Unit)? = null
+    private var statusTextState by mutableStateOf("Tekan tombol untuk mulai navigasi")
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -61,28 +60,16 @@ class MainActivity : ComponentActivity() {
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
             startNavService()
         } else {
-            updateStatusCallback?.invoke("Izin lokasi ditolak.")
+            statusTextState = "Izin lokasi ditolak."
         }
     }
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
 
-        NovanService.statusCallback = object : NovanService.StatusCallback {
-            override fun onUpdate(status: String) {
-                updateStatusCallback?.invoke(status)
-            }
-        }
-
         setContent {
             var selectedBottomTab by remember { mutableStateOf(0) }
             var isRunning by remember { mutableStateOf(false) }
-            var statusText by remember { mutableStateOf("Tekan tombol untuk mulai navigasi") }
-
-            // Menghubungkan callback status ke UI state
-            updateStatusCallback = { newStatus ->
-                statusText = newStatus
-            }
 
             MaterialTheme(
                 colorScheme = lightColorScheme(
@@ -127,14 +114,13 @@ class MainActivity : ComponentActivity() {
                     Box(modifier = Modifier.padding(innerPadding)) {
                         when (selectedBottomTab) {
                             0 -> LayarUtama(
-                                statusText = statusText,
+                                statusText = statusTextState,
                                 onCategoryClick = { categoryName ->
                                     isRunning = true
                                     requestPermissionLauncher.launch(
                                         arrayOf(
                                             Manifest.permission.ACCESS_FINE_LOCATION,
-                                            Manifest.permission.ACCESS_COARSE_LOCATION,
-                                            Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                                            Manifest.permission.ACCESS_COARSE_LOCATION
                                         )
                                     )
                                 }
@@ -156,11 +142,13 @@ class MainActivity : ComponentActivity() {
         } else {
             startService(intent)
         }
+        statusTextState = "Navigasi berjalan..."
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        NovanService.statusCallback = null
+    private fun stopNavService() {
+        val intent = Intent(this, NovanService::class.java)
+        stopService(intent)
+        statusTextState = "Navigasi dihentikan."
     }
 }
 
@@ -272,7 +260,6 @@ fun LayarUtama(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Status teks layanan navigasi suara
         Text(
             text = statusText,
             color = Color.DarkGray,
