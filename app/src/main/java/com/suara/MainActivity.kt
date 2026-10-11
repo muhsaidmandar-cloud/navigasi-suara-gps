@@ -19,7 +19,24 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -181,17 +198,17 @@ fun LayarUtama(
     onCategoryClick: (String) -> Unit
 ) {
     val categories = listOf(
-        MenuCategory("Baru-baru ini diumumkan", Icons.Default.History),
-        MenuCategory("Mengangkut", Icons.Default.DirectionsBus),
-        MenuCategory("Bank dan ATM", Icons.Default.AccountBalance),
-        MenuCategory("Kesehatan", Icons.Default.LocalHospital),
-        MenuCategory("Makanan", Icons.Default.Restaurant),
+        MenuCategory("Baru-baru ini diumumkan", Icons.Default.Refresh),
+        MenuCategory("Mengangkut", Icons.Default.Place),
+        MenuCategory("Bank dan ATM", Icons.Default.Info),
+        MenuCategory("Kesehatan", Icons.Default.Add),
+        MenuCategory("Makanan", Icons.Default.Call),
         MenuCategory("Toko", Icons.Default.ShoppingCart),
-        MenuCategory("Seni dan hiburan", Icons.Default.TheaterComedy),
-        MenuCategory("Bangunan umum", Icons.Default.LocationCity),
-        MenuCategory("Fasilitas pendidikan", Icons.Default.School),
-        MenuCategory("Pub dan klub", Icons.Default.LocalBar),
-        MenuCategory("Penginapan", Icons.Default.Hotel)
+        MenuCategory("Seni dan hiburan", Icons.Default.Star),
+        MenuCategory("Bangunan umum", Icons.Default.Home),
+        MenuCategory("Fasilitas pendidikan", Icons.Default.DateRange),
+        MenuCategory("Pub dan klub", Icons.Default.Build),
+        MenuCategory("Penginapan", Icons.Default.Place)
     )
 
     Column(
@@ -498,7 +515,7 @@ fun SettingItem(
         Spacer(modifier = Modifier.height(4.dp))
         Text(text = subtitle, fontSize = 14.sp, color = Color.Gray)
         Spacer(modifier = Modifier.height(12.dp))
-        Divider(color = Color(0xFFE0E0E0), thickness = 1.dp)
+        HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
     }
 }
 
