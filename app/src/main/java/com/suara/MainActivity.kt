@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 class MainActivity : ComponentActivity() {
+    // Variabel callback yang dibutuhkan oleh build variant pro/gratis & NovanService
     private var updateStatusCallback: ((String) -> Unit)? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -76,6 +77,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             var selectedBottomTab by remember { mutableStateOf(0) }
             var isRunning by remember { mutableStateOf(false) }
+            var statusText by remember { mutableStateOf("Tekan tombol untuk mulai navigasi") }
+
+            // Menghubungkan callback status ke UI state
+            updateStatusCallback = { newStatus ->
+                statusText = newStatus
+            }
 
             MaterialTheme(
                 colorScheme = lightColorScheme(
@@ -120,12 +127,14 @@ class MainActivity : ComponentActivity() {
                     Box(modifier = Modifier.padding(innerPadding)) {
                         when (selectedBottomTab) {
                             0 -> LayarUtama(
+                                statusText = statusText,
                                 onCategoryClick = { categoryName ->
                                     isRunning = true
                                     requestPermissionLauncher.launch(
                                         arrayOf(
                                             Manifest.permission.ACCESS_FINE_LOCATION,
-                                            Manifest.permission.ACCESS_COARSE_LOCATION
+                                            Manifest.permission.ACCESS_COARSE_LOCATION,
+                                            Manifest.permission.ACCESS_BACKGROUND_LOCATION
                                         )
                                     )
                                 }
@@ -194,6 +203,7 @@ fun LazarusTopBar() {
 
 @Composable
 fun LayarUtama(
+    statusText: String,
     modifier: Modifier = Modifier,
     onCategoryClick: (String) -> Unit
 ) {
@@ -260,7 +270,17 @@ fun LayarUtama(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Status teks layanan navigasi suara
+        Text(
+            text = statusText,
+            color = Color.DarkGray,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(3),
